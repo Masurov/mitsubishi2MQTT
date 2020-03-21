@@ -25,7 +25,7 @@ String mqtt_server;
 String mqtt_port;
 String mqtt_username;
 String mqtt_password;
-String mqtt_topic = "mitsubishi2mqtt";
+String mqtt_topic = "heatpump";
 String mqtt_client_id;
 
 //Define global variables for Others settings
@@ -33,21 +33,14 @@ String others_debug;
 String others_haa;
 String others_haa_topic;
 
-// Define global variables for HA topics
-String ha_power_set_topic;
-String ha_mode_set_topic;
-String ha_temp_set_topic;
-String ha_remote_temp_set_topic;
-String ha_fan_set_topic;
-String ha_vane_set_topic;
-String ha_wideVane_set_topic;
-String ha_settings_topic;
-String ha_state_topic;
-String ha_debug_topic;
-String ha_debug_set_topic;
-String ha_config_topic;
-String ha_discovery_topic;
-String hvac_name;
+// Define global variables for topics
+String heatpump_topic ;
+String heatpump_set_topic ;
+String heatpump_status_topic ;
+String heatpump_timers_topic ;
+
+String heatpump_debug_topic ;
+String heatpump_debug_set_topic ;
 //login
 String login_username = "admin";
 String login_password;

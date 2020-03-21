@@ -92,19 +92,15 @@ void setup() {
     lastMqttRetry = 0;
     if (loadMqtt()) {
       //write_log("Starting MQTT");
-      // setup HA topics
-      ha_power_set_topic    = mqtt_topic + "/" + mqtt_fn + "/power/set";
-      ha_mode_set_topic     = mqtt_topic + "/" + mqtt_fn + "/mode/set";
-      ha_temp_set_topic     = mqtt_topic + "/" + mqtt_fn + "/temp/set";
-      ha_remote_temp_set_topic = mqtt_topic + "/" + mqtt_fn + "/remote_temp/set";
-      ha_fan_set_topic      = mqtt_topic + "/" + mqtt_fn + "/fan/set";
-      ha_vane_set_topic     = mqtt_topic + "/" + mqtt_fn + "/vane/set";
-      ha_wideVane_set_topic = mqtt_topic + "/" + mqtt_fn + "/wideVane/set";
-      ha_settings_topic     = mqtt_topic  + "/" + mqtt_fn + "/settings";
-      ha_state_topic        = mqtt_topic  + "/" + mqtt_fn + "/state";
-      ha_debug_topic        = mqtt_topic + "/" + mqtt_fn + "/debug";
-      ha_debug_set_topic    = mqtt_topic + "/" + mqtt_fn + "/debug/set";
-      ha_config_topic       = "homeassistant/climate/" + mqtt_fn + "/config";
+      // setup topics
+      heatpump_topic              = mqtt_topic + "/" + mqtt_fn;
+      
+      heatpump_set_topic          = heatpump_topic + "/set";
+      heatpump_status_topic       = heatpump_topic + "/status";
+      heatpump_timers_topic       = heatpump_topic + "/timers";
+
+      heatpump_debug_topic        = heatpump_topic + "/debug";
+      heatpump_debug_set_topic    = heatpump_topic + "/debug/set";
       // startup mqtt connection
       initMqtt();
     }
@@ -1014,100 +1010,59 @@ heatpumpSettings change_states(heatpumpSettings settings) {
 void hpSettingsChanged() {
   // send room temp, operating info and all information
   heatpumpSettings currentSettings = hp.getSettings();
-
+  
   const size_t bufferSizeInfo = JSON_OBJECT_SIZE(6);
   StaticJsonDocument<bufferSizeInfo> rootInfo;
 
-  rootInfo["temperature"]     = getTemperature(currentSettings.temperature, useFahrenheit);
-  rootInfo["fan"]             = currentSettings.fan;
-  rootInfo["vane"]            = currentSettings.vane;
-
-  String hppower = String(currentSettings.power);
-  String hpmode = String(currentSettings.mode);
-
-  hppower.toLowerCase();
-  hpmode.toLowerCase();
-
-  if (hpmode == "fan") {
-    rootInfo["mode"] = "fan_only";
-  }
-  else if (hpmode == "auto") {
-    rootInfo["mode"] = "heat_cool";
-  }
-  else {
-    rootInfo["mode"] = hpmode.c_str();
-  }
-
-  if (hppower == "off") {
-    rootInfo["mode"] = "off";
-  }
+  
+  rootInfo["power"]       = currentSettings.power;
+  rootInfo["mode"]        = currentSettings.mode;
+  rootInfo["temperature"] = currentSettings.temperature;
+  rootInfo["fan"]         = currentSettings.fan;
+  rootInfo["vane"]        = currentSettings.vane;
+  rootInfo["wideVane"]    = currentSettings.wideVane;
+  //root["iSee"]        = currentSettings.iSee;
 
   String mqttOutput;
   serializeJson(rootInfo, mqttOutput);
 
-  if (!mqtt_client.publish(ha_settings_topic.c_str(), mqttOutput.c_str(), true)) {
-    if (_debugMode) mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Failed to publish hp settings")));
+  if (!mqtt_client.publish_P(heatpump_topic.c_str(), mqttOutput.c_str(), true)) {
+    mqtt_client.publish(heatpump_debug_topic.c_str(), "failed to publish to heatpump topic");
   }
-
-  hpStatusChanged(hp.getStatus());
 }
 
-String hpGetMode() {
-  heatpumpSettings currentSettings = hp.getSettings();
-  String hppower = String(currentSettings.power);
-  String hpmode = String(currentSettings.mode);
-  hppower.toLowerCase();
-  hpmode.toLowerCase();
-  String result;
-  if (hppower == "off") result = "off";
-  else {
-    if (hpmode == "fan") result = "fan_only";
-    else if (hpmode == "auto") result = "heat_cool";
-    else result = hpmode.c_str();
-  }
-  return result;
-}
-
-String hpGetAction() {
-  heatpumpSettings currentSettings = hp.getSettings();
-  String hppower = String(currentSettings.power);
-  String hpmode = String(currentSettings.mode);
-  hppower.toLowerCase();
-  hpmode.toLowerCase();
-  String result = "idle";
-  if (hppower == "off") result = "off";
-  else {
-    if (hpmode == "auto") result = "auto";
-    //        if (currentStatus.roomTemperature > currentSettings.temperature) result = "cooling"
-    //        else result = "heating";
-    else if (hpmode == "cool") result = "cooling";
-    else if (hpmode == "heat") result = "heating";
-    else if (hpmode == "dry")  result = "drying";
-    else if (hpmode == "fan")  result = "idle";
-  }
-  return result;
-}
 
 void hpStatusChanged(heatpumpStatus currentStatus) {
 
-  // send room temp, operating info and all information
-  heatpumpSettings currentSettings = hp.getSettings();
-
-  const size_t bufferSizeInfo = JSON_OBJECT_SIZE(7);
+  // send room temp and operating info
+  const size_t bufferSizeInfo = JSON_OBJECT_SIZE(2);
   StaticJsonDocument<bufferSizeInfo> rootInfo;
 
-  rootInfo["roomTemperature"] = getTemperature(currentStatus.roomTemperature, useFahrenheit);
-  rootInfo["temperature"]     = getTemperature(currentSettings.temperature, useFahrenheit);
-  //rootInfo["operating"]       = currentStatus.operating;
-  rootInfo["fan"]             = currentSettings.fan;
-  rootInfo["vane"]            = currentSettings.vane;
-  rootInfo["action"]          = hpGetAction();
-  rootInfo["mode"]            = hpGetMode();
-  String mqttOutput;
-  serializeJson(rootInfo, mqttOutput);
+  rootInfo["roomTemperature"] = currentStatus.roomTemperature;
+  rootInfo["operating"]       = currentStatus.operating;
 
-  if (!mqtt_client.publish_P(ha_state_topic.c_str(), mqttOutput.c_str(), false)) {
-    if (_debugMode) mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Failed to publish hp status change")));
+  String mqttInfo;
+  serializeJson(rootInfo, mqttInfo);
+
+  if (!mqtt_client.publish_P(heatpump_status_topic.c_str(), mqttInfo.c_str(), false)) {
+    mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("Failed to publish hp status change")));
+  }
+
+  // send the timer info
+  const size_t bufferSizeTimers = JSON_OBJECT_SIZE(5);
+  StaticJsonDocument<bufferSizeTimers> rootTimers;
+
+  rootTimers["mode"]          = currentStatus.timers.mode;
+  rootTimers["onMins"]        = currentStatus.timers.onMinutesSet;
+  rootTimers["onRemainMins"]  = currentStatus.timers.onMinutesRemaining;
+  rootTimers["offMins"]       = currentStatus.timers.offMinutesSet;
+  rootTimers["offRemainMins"] = currentStatus.timers.offMinutesRemaining;
+
+  String mqttTimers;
+  serializeJson(rootTimers, mqttTimers);
+
+  if (!mqtt_client.publish_P(heatpump_timers_topic.c_str(), mqttTimers.c_str(), true)) {
+    mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("failed to publish timer info to heatpump/status topic")));
   }
 
 }
@@ -1128,36 +1083,10 @@ void hpPacketDebug(byte* packet, unsigned int length, char* packetDirection) {
     root[packetDirection] = message;
     String mqttOutput;
     serializeJson(root, mqttOutput);
-    if (!mqtt_client.publish(ha_debug_topic.c_str(), mqttOutput.c_str())) {
-      mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Failed to publish to heatpump/debug topic")));
+    if (!mqtt_client.publish(heatpump_debug_topic.c_str(), mqttOutput.c_str())) {
+      mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("Failed to publish to heatpump/debug topic")));
     }
   }
-}
-
-// Used to send a dummy packet in state topic to validate action in HA interface
-void hpSendDummy(String name, String value, String name2, String value2) {
-
-  //For sending dummy state packet
-  const size_t bufferSizeInfo = JSON_OBJECT_SIZE(12);
-  StaticJsonDocument<bufferSizeInfo> rootInfo;
-  heatpumpStatus currentStatus = hp.getStatus();
-  heatpumpSettings currentSettings = hp.getSettings();
-  rootInfo["roomTemperature"] = getTemperature(currentStatus.roomTemperature, useFahrenheit);
-  rootInfo["temperature"]     = getTemperature(currentSettings.temperature, useFahrenheit);
-  rootInfo["fan"]             = currentSettings.fan;
-  rootInfo["vane"]            = currentSettings.vane;
-  rootInfo["action"]          = hpGetAction();
-  rootInfo["mode"]            = hpGetMode();
-  rootInfo[name] = value;
-  if (name2 != "") rootInfo[name2] = value2;
-  //Send dummy MQTT state packet before unit update
-  String mqttOutput;
-  serializeJson(rootInfo, mqttOutput);
-  if (!mqtt_client.publish_P(ha_state_topic.c_str(), mqttOutput.c_str(), false)) {
-    if (_debugMode) mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Failed to publish dummy hp status change")));
-  }
-  // Restart counter for waiting enought time for the unit to update before sending a state packet
-  lastTempSend = millis();
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -1169,171 +1098,95 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   message[length] = '\0';
 
-  // HA topics
-  // Receive power topic
-  if (strcmp(topic, ha_power_set_topic.c_str()) == 0) {
-    String modeUpper = message;
-    modeUpper.toUpperCase();
-    if (modeUpper == "OFF") {
-      hp.setPowerSetting(modeUpper.c_str());
-      hp.update();
-    }
-  }
-  else if (strcmp(topic, ha_mode_set_topic.c_str()) == 0) {
-    const size_t bufferSize = JSON_OBJECT_SIZE(2);
-    StaticJsonDocument<bufferSize> root;
-    root["mode"] = message;
-    String modeUpper = message;
-    modeUpper.toUpperCase();
-    if (modeUpper == "HEAT_COOL") {
-      modeUpper = "AUTO";
-      hpSendDummy("mode", "heat_cool", "action", "idle");
-    }
-    if (modeUpper == "HEAT") {
-      hpSendDummy("mode", "heat", "action", "heating");
-    }
-    if (modeUpper == "COOL") {
-      hpSendDummy("mode", "cool", "action", "cooling");
-    }
-    if (modeUpper == "DRY") {
-      hpSendDummy("mode", "dry", "action", "drying");
+  if (strcmp(topic, heatpump_set_topic.c_str()) == 0) { //if the incoming message is on the heatpump_set_topic topic...
+    // Parse message into JSON
+    const size_t bufferSize = JSON_OBJECT_SIZE(6);
+    DynamicJsonDocument root(bufferSize);
+    DeserializationError error = deserializeJson(root, message);
 
+    if (error) {
+      mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("!root.success(): invalid JSON on heatpump_set_topic...")));
+      return;
     }
-    if (modeUpper == "FAN_ONLY") {
-      modeUpper = "FAN";
-      hpSendDummy("action", "fan_only", "mode", "fan_only");
+
+    // Step 3: Retrieve the values
+    if (root.containsKey("power")) {
+      const char* power = root["power"];
+      hp.setPowerSetting(power);
     }
-    if (modeUpper == "OFF") {
-      hp.setPowerSetting("OFF");
-      hpSendDummy("action", "off", "mode", "off");
-    } else {
-      //hpSendDummy("action","on");
-      hp.setPowerSetting("ON");
-      hp.setModeSetting(modeUpper.c_str());
+
+    if (root.containsKey("mode")) {
+      const char* mode = root["mode"];
+      hp.setModeSetting(mode);
     }
-    hp.update();
-  }
-  else if (strcmp(topic, ha_temp_set_topic.c_str()) == 0) {
-    float temperature = strtof(message, NULL);
-    const size_t bufferSize = JSON_OBJECT_SIZE(2);
-    StaticJsonDocument<bufferSize> root;
-    root["temperature"] = message;
-    hpSendDummy("temperature", message, "", "");
-    hp.setTemperature(setTemperature(temperature, useFahrenheit));
-    hp.update();
-  }
-  else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0) {
-    const size_t bufferSize = JSON_OBJECT_SIZE(2);
-    StaticJsonDocument<bufferSize> root;
-    root["fan"] = message;
-    hpSendDummy("fan", message, "", "");
-    hp.setFanSpeed(message);
-    hp.update();
-  }
-  else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0) {
-    const size_t bufferSize = JSON_OBJECT_SIZE(2);
-    StaticJsonDocument<bufferSize> root;
-    root["vane"] = message;
-    hpSendDummy("vane", message, "", "");
-    hp.setVaneSetting(message);
-    hp.update();
-  }
-  else if (strcmp(topic, ha_remote_temp_set_topic.c_str()) == 0) {
-    float temperature = strtof(message, NULL);
-    hp.setRemoteTemperature(temperature);
-    hp.update();
-  }
-  else if (strcmp(topic, ha_debug_set_topic.c_str()) == 0) { //if the incoming message is on the heatpump_debug_set_topic topic...
+
+    if (root.containsKey("temperature")) {
+      float temperature = root["temperature"];
+      hp.setTemperature(temperature);
+    }
+
+    if (root.containsKey("fan")) {
+      const char* fan = root["fan"];
+      hp.setFanSpeed(fan);
+    }
+
+    if (root.containsKey("vane")) {
+      const char* vane = root["vane"];
+      hp.setVaneSetting(vane);
+    }
+
+    if (root.containsKey("wideVane")) {
+      const char* wideVane = root["wideVane"];
+      hp.setWideVaneSetting(wideVane);
+    }
+
+    if (root.containsKey("remoteTemp")) {
+      float remoteTemp = root["remoteTemp"];
+      hp.setRemoteTemperature(remoteTemp);
+    }
+    else if (root.containsKey("custom")) {
+      String custom = root["custom"];
+
+      // copy custom packet to char array
+      char buffer[(custom.length() + 1)]; // +1 for the NULL at the end
+      custom.toCharArray(buffer, (custom.length() + 1));
+
+      byte bytes[20]; // max custom packet bytes is 20
+      int byteCount = 0;
+      char *nextByte;
+
+      // loop over the byte string, breaking it up by spaces (or at the end of the line - \n)
+      nextByte = strtok(buffer, " ");
+      while (nextByte != NULL && byteCount < 20) {
+        bytes[byteCount] = strtol(nextByte, NULL, 16); // convert from hex string
+        nextByte = strtok(NULL, "   ");
+        byteCount++;
+      }
+
+      // dump the packet so we can see what it is. handy because you can run the code without connecting the ESP to the heatpump, and test sending custom packets
+      hpPacketDebug(bytes, byteCount, "customPacket");
+
+      hp.sendCustomPacket(bytes, byteCount);
+    }
+    else {
+      bool result = hp.update();
+
+      if (!result) {
+        mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("heatpump: update() failed")));
+      }
+    }
+
+  } else if (strcmp(topic, heatpump_debug_set_topic.c_str()) == 0) { //if the incoming message is on the heatpump_debug_set_topic topic...
     if (strcmp(message, "on") == 0) {
       _debugMode = true;
-      mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Debug mode enabled")));
+      mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("debug mode enabled")));
     } else if (strcmp(message, "off") == 0) {
       _debugMode = false;
-      mqtt_client.publish(ha_debug_topic.c_str(), (char*)(F("Debug mode disabled")));
+      mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("debug mode disabled")));
     }
-  } else {
-    mqtt_client.publish(ha_debug_topic.c_str(), strcat((char *)"heatpump: wrong mqtt topic: ", topic));
+  } else {//should never get called, as that would mean something went wrong with subscribe
+    mqtt_client.publish(heatpump_debug_topic.c_str(), (char*)(F("heatpump: wrong topic received")));
   }
-}
-
-void haConfig() {
-
-  // send HA config packet
-  // setup HA payload device
-  const size_t capacity = JSON_ARRAY_SIZE(5) + 2 * JSON_ARRAY_SIZE(6) + JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(24) + 2048;
-  DynamicJsonDocument haConfig(capacity);
-
-  haConfig["name"]                          = mqtt_fn;
-  haConfig["unique_id"]                     = String(ESP.getChipId(), HEX);
-
-  JsonArray haConfigModes = haConfig.createNestedArray("modes");
-  haConfigModes.add("heat_cool"); //native AUTO mode
-  haConfigModes.add("cool");
-  haConfigModes.add("dry");
-  if (supportHeatMode) {
-    haConfigModes.add("heat");
-  }
-  haConfigModes.add("fan_only");  //native FAN mode
-  haConfigModes.add("off");
-
-
-  haConfig["mode_cmd_t"]                    = ha_mode_set_topic;
-  haConfig["mode_stat_t"]                   = ha_state_topic;
-  haConfig["mode_stat_tpl"]                 = F("{{ value_json.mode if (value_json is defined and value_json.mode is defined and value_json.mode|length) else 'off' }}"); //Set default value for fix "Could not parse data for HA"
-  haConfig["temp_cmd_t"]                    = ha_temp_set_topic;
-  haConfig["temp_stat_t"]                   = ha_state_topic;
-  String temp_stat_tpl_str                  = F("{{ value_json.temperature if (value_json is defined and value_json.temperature is defined and value_json.temperature|int > ");
-  temp_stat_tpl_str                        += (String)getTemperature(16, useFahrenheit) + ") else '" + (String)getTemperature(26, useFahrenheit) + "' }}"; //Set default value for fix "Could not parse data for HA"
-  haConfig["temp_stat_tpl"]                 = temp_stat_tpl_str;
-  haConfig["curr_temp_t"]                   = ha_state_topic;
-  String curr_temp_tpl_str                  = F("{{ value_json.roomTemperature if (value_json is defined and value_json.roomTemperature is defined and value_json.roomTemperature|int > ");
-  curr_temp_tpl_str                        += (String)getTemperature(8, useFahrenheit) + ") else '" + (String)getTemperature(26, useFahrenheit) + "' }}"; //Set default value for fix "Could not parse data for HA"
-  haConfig["curr_temp_tpl"]                 = curr_temp_tpl_str;
-  haConfig["min_temp"]                      = getTemperature(min_temp, useFahrenheit);
-  haConfig["max_temp"]                      = getTemperature(max_temp, useFahrenheit);
-  haConfig["temp_step"]                     = temp_step;
-  haConfig["pow_cmd_t"]                     = ha_power_set_topic;
-
-  JsonArray haConfigFan_modes = haConfig.createNestedArray("fan_modes");
-  haConfigFan_modes.add("AUTO");
-  haConfigFan_modes.add("QUIET");
-  haConfigFan_modes.add("1");
-  haConfigFan_modes.add("2");
-  haConfigFan_modes.add("3");
-  haConfigFan_modes.add("4");
-
-  haConfig["fan_mode_cmd_t"]                = ha_fan_set_topic;
-  haConfig["fan_mode_stat_t"]               = ha_state_topic;
-  haConfig["fan_mode_stat_tpl"]             = F("{{ value_json.fan if (value_json is defined and value_json.fan is defined and value_json.fan|length) else 'AUTO' }}"); //Set default value for fix "Could not parse data for HA"
-
-  JsonArray haConfigSwing_modes = haConfig.createNestedArray("swing_modes");
-  haConfigSwing_modes.add("AUTO");
-  haConfigSwing_modes.add("1");
-  haConfigSwing_modes.add("2");
-  haConfigSwing_modes.add("3");
-  haConfigSwing_modes.add("4");
-  haConfigSwing_modes.add("5");
-  haConfigSwing_modes.add("SWING");
-
-  haConfig["swing_mode_cmd_t"]              = ha_vane_set_topic;
-  haConfig["swing_mode_stat_t"]             = ha_state_topic;
-  haConfig["swing_mode_stat_tpl"]           = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); //Set default value for fix "Could not parse data for HA"
-  haConfig["action_topic"]                  = ha_state_topic;
-  haConfig["action_template"]               = F("{{ value_json.action if (value_json is defined and value_json.action is defined and value_json.action|length) else 'idle' }}"); //Set default value for fix "Could not parse data for HA"
-
-  JsonObject haConfigDevice = haConfig.createNestedObject("device");
-
-  haConfigDevice["ids"]   = mqtt_fn;
-  haConfigDevice["name"]  = mqtt_fn;
-  haConfigDevice["sw"]    = "Mitsubishi2MQTT " + String(m2mqtt_version);
-  haConfigDevice["mdl"]   = "HVAC MITSUBISHI";
-  haConfigDevice["mf"]    = "MITSUBISHI ELECTRIC";
-
-  String mqttOutput;
-  serializeJson(haConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
 }
 
 void mqttConnect() {
@@ -1359,13 +1212,8 @@ void mqttConnect() {
     }
     // We are connected
     else    {
-      mqtt_client.subscribe(ha_debug_set_topic.c_str());
-      mqtt_client.subscribe(ha_power_set_topic.c_str());
-      mqtt_client.subscribe(ha_mode_set_topic.c_str());
-      mqtt_client.subscribe(ha_fan_set_topic.c_str());
-      mqtt_client.subscribe(ha_temp_set_topic.c_str());
-      mqtt_client.subscribe(ha_vane_set_topic.c_str());
-      haConfig();
+      mqtt_client.subscribe(heatpump_set_topic.c_str());
+      mqtt_client.subscribe(heatpump_debug_set_topic.c_str());
     }
   }
 }
